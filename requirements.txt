@@ -7,3 +7,4 @@ langgraph
 python-dotenv
 pydantic
 httpx
+python-telegram-bot[job-queue]
