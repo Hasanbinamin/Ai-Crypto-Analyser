@@ -27,7 +27,7 @@ A Telegram bot that analyzes cryptocurrency market sentiment by monitoring tradi
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/market-sentiment-bot.git
+   git clone https://github.com/Hasanbinamin/Ai-Crypto-Analyser.git
    cd market-sentiment-bot
    ```
 
