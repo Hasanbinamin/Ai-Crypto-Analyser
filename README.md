@@ -31,7 +31,7 @@ A Telegram bot that analyzes cryptocurrency market sentiment by monitoring tradi
    cd market-sentiment-bot
    ```
 
-2. Edit the `.env` file:
+2. Create a `.env` file:
 
    In `.env` add your API keys:
    ```
