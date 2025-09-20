@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  market-bot:
+    build: .
+    volumes:
+      - .:/app
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+    ports:
+      - "8000:8000"  # Expose the API port if needed
+    restart: unless-stopped
