@@ -74,7 +74,7 @@ Format your response as:
 
 if __name__ == "__main__":
     response = agent.invoke(
-        {"messages": [{"role": "user", "content": "LTCUSDT 10 hours"}]}
+        {"messages": [{"role": "user", "content": "ADAUSDT 3 hours"}]}
     )
 
     final_massage = response["messages"][-1].content

@@ -41,7 +41,7 @@ A Telegram bot that analyzes cryptocurrency market sentiment by monitoring tradi
 
 3. Build and start the services:
    ```bash
-   docker-compose up --build
+   docker build -t ai-crypto-analyser .
    ```
 
 ## 🛠 Usage

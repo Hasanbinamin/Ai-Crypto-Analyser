@@ -23,8 +23,15 @@ user_jobs = {}      # runtime only
 user_loop_info = {} # runtime only
 
 # -------- JSON PERSISTENCE -------- #
+def ensure_data_directory():
+    """Ensure the data directory exists"""
+    data_dir = os.path.dirname(DATA_FILE)
+    if data_dir and not os.path.exists(data_dir):
+        os.makedirs(data_dir, exist_ok=True)
+
 def load_user_data():
     global user_signals
+    ensure_data_directory()  # Ensure directory exists
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r") as f:
@@ -35,6 +42,7 @@ def load_user_data():
         user_signals = {}
 
 def save_user_data():
+    ensure_data_directory()  # Ensure directory exists before saving
     with open(DATA_FILE, "w") as f:
         json.dump(user_signals, f, indent=4)
 
@@ -46,12 +54,28 @@ def main_menu():
         [InlineKeyboardButton("💾 Save Signal", callback_data="save_signal")],
         [InlineKeyboardButton("🔁 Resend Signal", callback_data="resend_signal")],
         [InlineKeyboardButton("⏲ Enable Loop", callback_data="enable_loop")],
+        [InlineKeyboardButton("📊 Loop Status", callback_data="loop_status")],
         [InlineKeyboardButton("🛑 Stop Loop", callback_data="stop_loop")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def back_button():
     return InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back")]])
+
+def loop_interval_menu():
+    """Menu for selecting loop intervals"""
+    keyboard = [
+        [InlineKeyboardButton("⏱ 1 minute", callback_data="loop_1m")],
+        [InlineKeyboardButton("⏱ 5 minutes", callback_data="loop_5m")],
+        [InlineKeyboardButton("⏱ 15 minutes", callback_data="loop_15m")],
+        [InlineKeyboardButton("⏱ 30 minutes", callback_data="loop_30m")],
+        [InlineKeyboardButton("⏱ 1 hour", callback_data="loop_1h")],
+        [InlineKeyboardButton("⏱ 4 hours", callback_data="loop_4h")],
+        [InlineKeyboardButton("⏱ 1 day", callback_data="loop_1d")],
+        [InlineKeyboardButton("🔧 Custom", callback_data="loop_custom")],
+        [InlineKeyboardButton("⬅️ Back", callback_data="back")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 # -------- START -------- #
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -93,29 +117,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "enable_loop":
         signal = user_signals.get(user_id)
         if signal:
-            query_str = f"{signal['symbol']} {signal['timeframe']}"
-            interval = timeframe_to_seconds(signal["timeframe"])
-            if interval:
-                if user_id in user_jobs:
-                    user_jobs[user_id].schedule_removal()
-
-                job = context.job_queue.run_repeating(
-                    loop_task, interval=interval, first=0,
-                    chat_id=int(user_id), data=query_str
-                )
-                user_jobs[user_id] = job
-                next_run = datetime.now() + timedelta(seconds=interval)
-                user_loop_info[user_id] = {"interval": interval, "next_run": next_run}
-
-                await query.edit_message_text(
-                    f"🔁 Loop enabled for {signal['symbol']} every {signal['timeframe']}.\n"
-                    f"➡️ Next run: {next_run.strftime('%Y-%m-%d %H:%M:%S')}",
-                    reply_markup=main_menu()
-                )
-            else:
-                await query.edit_message_text("⚠️ Unsupported timeframe.", reply_markup=main_menu())
+            await query.edit_message_text(
+                f"🔁 Choose notification interval for {signal['symbol']} ({signal['timeframe']}):",
+                reply_markup=loop_interval_menu()
+            )
         else:
             await query.edit_message_text("⚠️ Save a signal first.", reply_markup=main_menu())
+
+    elif query.data == "loop_status":
+        if user_id in user_loop_info:
+            info = user_loop_info[user_id]
+            status_text = (
+                f"📊 Loop Status: ACTIVE ✅\n\n"
+                f"📈 Symbol: {info['symbol']} ({info['timeframe']})\n"
+                f"⏱ Interval: Every {info['interval_str']}\n"
+                f"➡️ Next run: {info['next_run'].strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"🕐 Time until next: {format_time_until(info['next_run'])}"
+            )
+        else:
+            status_text = "📊 Loop Status: INACTIVE ❌\n\nNo loop is currently running."
+        
+        await query.edit_message_text(status_text, reply_markup=main_menu())
 
     elif query.data == "stop_loop":
         if user_id in user_jobs:
@@ -125,6 +147,28 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("🛑 Loop stopped.", reply_markup=main_menu())
         else:
             await query.edit_message_text("⚠️ No loop is running.", reply_markup=main_menu())
+
+    elif query.data.startswith("loop_"):
+        signal = user_signals.get(user_id)
+        if signal:
+            # Parse the interval from callback data
+            interval_str = query.data.replace("loop_", "")
+            
+            if interval_str == "custom":
+                await query.edit_message_text(
+                    "🔧 Send me custom interval (e.g., 2m, 30m, 2h, 6h):",
+                    reply_markup=back_button()
+                )
+                context.user_data["awaiting"] = "custom_interval"
+                return
+            
+            interval = timeframe_to_seconds(interval_str)
+            if interval:
+                await start_loop_with_interval(query, context, user_id, signal, interval, interval_str)
+            else:
+                await query.edit_message_text("⚠️ Invalid interval.", reply_markup=main_menu())
+        else:
+            await query.edit_message_text("⚠️ Save a signal first.", reply_markup=main_menu())
 
     elif query.data == "back":
         await query.edit_message_text("⚡ Back to main menu:", reply_markup=main_menu())
@@ -144,13 +188,67 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Timeframe set: {context.user_data['timeframe']}", reply_markup=main_menu())
         context.user_data["awaiting"] = None
 
+    elif awaiting == "custom_interval":
+        interval_str = update.message.text.strip()
+        interval = timeframe_to_seconds(interval_str)
+        if interval:
+            signal = user_signals.get(user_id)
+            if signal:
+                # Create a fake query object for consistency with start_loop_with_interval
+                class FakeQuery:
+                    def __init__(self, message):
+                        self.message = message
+                    async def edit_message_text(self, text, reply_markup=None):
+                        await self.message.reply_text(text, reply_markup=reply_markup)
+                
+                fake_query = FakeQuery(update.message)
+                await start_loop_with_interval(fake_query, context, user_id, signal, interval, interval_str)
+            else:
+                await update.message.reply_text("⚠️ Save a signal first.", reply_markup=main_menu())
+        else:
+            await update.message.reply_text("⚠️ Invalid interval format. Try again (e.g., 2m, 30m, 2h):", reply_markup=back_button())
+            return
+        context.user_data["awaiting"] = None
+
     else:
         await update.message.reply_text("Use /start to configure signals.")
+
+# -------- LOOP MANAGEMENT -------- #
+async def start_loop_with_interval(query, context, user_id, signal, interval, interval_str):
+    """Start a loop with the specified interval"""
+    query_str = f"{signal['symbol']} {signal['timeframe']}"
+    
+    # Stop existing loop if any
+    if user_id in user_jobs:
+        user_jobs[user_id].schedule_removal()
+    
+    # Start new loop
+    job = context.job_queue.run_repeating(
+        loop_task, interval=interval, first=0,
+        chat_id=int(user_id), data=query_str
+    )
+    user_jobs[user_id] = job
+    next_run = datetime.now() + timedelta(seconds=interval)
+    user_loop_info[user_id] = {
+        "interval": interval, 
+        "next_run": next_run,
+        "interval_str": interval_str,
+        "symbol": signal['symbol'],
+        "timeframe": signal['timeframe']
+    }
+    
+    await query.edit_message_text(
+        f"🔁 Loop enabled!\n"
+        f"📈 Symbol: {signal['symbol']} ({signal['timeframe']})\n"
+        f"⏱ Interval: Every {interval_str}\n"
+        f"➡️ Next run: {next_run.strftime('%Y-%m-%d %H:%M:%S')}",
+        reply_markup=main_menu()
+    )
 
 # -------- ANALYSIS -------- #
 async def send_analysis(chat_id, context, query_str):
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=1000.0) as client:
             response = await client.post(API_URL, json={"query": query_str})
             data = response.json()
             result = data.get("result", "⚠️ No response from AI agent.")
@@ -160,10 +258,16 @@ async def send_analysis(chat_id, context, query_str):
 
 async def loop_task(context: ContextTypes.DEFAULT_TYPE):
     query_str = context.job.data
+    user_id = str(context.job.chat_id)
+    
+    # Send analysis
     await send_analysis(context.job.chat_id, context, query_str)
-    user_loop_info[str(context.job.chat_id)]["next_run"] = datetime.now() + timedelta(
-        seconds=user_loop_info[str(context.job.chat_id)]["interval"]
-    )
+    
+    # Update next run time if user still has loop info
+    if user_id in user_loop_info:
+        user_loop_info[user_id]["next_run"] = datetime.now() + timedelta(
+            seconds=user_loop_info[user_id]["interval"]
+        )
 
 # -------- UTILS -------- #
 def timeframe_to_seconds(tf: str):
@@ -177,6 +281,33 @@ def timeframe_to_seconds(tf: str):
         "mo": 2592000, "y": 31536000,
     }
     return value * multipliers.get(unit, 0)
+
+def format_time_until(target_time):
+    """Format time remaining until target time"""
+    now = datetime.now()
+    if target_time <= now:
+        return "Due now"
+    
+    diff = target_time - now
+    total_seconds = int(diff.total_seconds())
+    
+    if total_seconds < 60:
+        return f"{total_seconds} seconds"
+    elif total_seconds < 3600:
+        minutes = total_seconds // 60
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    elif total_seconds < 86400:
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        if minutes > 0:
+            return f"{hours}h {minutes}m"
+        return f"{hours} hour{'s' if hours != 1 else ''}"
+    else:
+        days = total_seconds // 86400
+        hours = (total_seconds % 86400) // 3600
+        if hours > 0:
+            return f"{days}d {hours}h"
+        return f"{days} day{'s' if days != 1 else ''}"
 
 # -------- MAIN -------- #
 def main():
