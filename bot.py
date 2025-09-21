@@ -150,7 +150,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # -------- ANALYSIS -------- #
 async def send_analysis(chat_id, context, query_str):
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=1000.0) as client:
             response = await client.post(API_URL, json={"query": query_str})
             data = response.json()
             result = data.get("result", "⚠️ No response from AI agent.")
