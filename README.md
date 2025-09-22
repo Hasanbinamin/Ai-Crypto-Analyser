@@ -44,9 +44,9 @@ A Telegram bot that analyzes cryptocurrency market sentiment by monitoring tradi
    docker-compose build --no-cache
    ```
    or you can pull from dockerhub
-```bash
-docker pull alibinamin/market-bot:latest
-```
+   ```bash
+   docker pull alibinamin/market-bot:latest
+   ```
 
 ## 🛠 Usage
 
